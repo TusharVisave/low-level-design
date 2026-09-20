@@ -1,24 +1,43 @@
 package com.Tushar.lld.parkinglot;
 
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 public class ParkingLot {
 
-    private final List<ParkingSpot> parkingSpots;
+    private final List<ParkingFloor> parkingFloors;
 
-    public ParkingLot(List<ParkingSpot> parkingSpots) {
-        if (parkingSpots == null || parkingSpots.isEmpty()) {
+    public ParkingLot(List<ParkingFloor> parkingFloors) {
+
+        if (parkingFloors == null || parkingFloors.isEmpty()) {
             throw new IllegalArgumentException(
-                    "Parking lot must contain at least one spot"
+                    "Parking lot must contain at least one floor"
             );
         }
 
-        this.parkingSpots = new ArrayList<>(parkingSpots);
+        this.parkingFloors =
+                new ArrayList<>(parkingFloors);
     }
 
     public void parkVehicle(Vehicle vehicle) {
+
+        ParkingSpot nearestSpot =
+                findNearestAvailableSpot(vehicle);
+
+        if (nearestSpot == null) {
+            throw new IllegalStateException(
+                    "No suitable parking spot available"
+            );
+        }
+
+        nearestSpot.park(vehicle);
+    }
+
+    public ParkingSpot findNearestAvailableSpot(
+            Vehicle vehicle
+    ) {
 
         if (vehicle == null) {
             throw new IllegalArgumentException(
@@ -26,20 +45,22 @@ public class ParkingLot {
             );
         }
 
-        for (ParkingSpot spot : parkingSpots) {
+        for (ParkingFloor floor : parkingFloors) {
 
-            if (spot.canFit(vehicle)) {
-                spot.park(vehicle);
-                return;
+            ParkingSpot spot =
+                    floor.findNearestAvailableSpot(vehicle);
+
+            if (spot != null) {
+                return spot;
             }
         }
 
-        throw new IllegalStateException(
-                "No suitable parking spot available"
-        );
+        return null;
     }
 
-    public List<ParkingSpot> getParkingSpots() {
-        return Collections.unmodifiableList(parkingSpots);
+    public List<ParkingFloor> getParkingFloors() {
+        return Collections.unmodifiableList(
+                parkingFloors
+        );
     }
 }

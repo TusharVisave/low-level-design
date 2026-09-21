@@ -1,5 +1,7 @@
 package com.Tushar.lld.parkinglot;
 
+import com.Tushar.lld.parkinglot.pricing.HourlyPricingStrategy;
+import com.Tushar.lld.parkinglot.pricing.PricingStrategy;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -27,7 +29,9 @@ class ParkingLotTest {
         Vehicle car =
                 new Car("MH15AB1234");
 
-        parkingLot.parkVehicle(car);
+        PricingStrategy strategy = new HourlyPricingStrategy();
+
+        parkingLot.parkVehicle(car, strategy);
 
         assertEquals(
                 car,
@@ -53,9 +57,11 @@ class ParkingLotTest {
         Vehicle truck =
                 new Truck("MH15TR1234");
 
+        PricingStrategy strategy = new HourlyPricingStrategy();
+
         assertThrows(
                 IllegalStateException.class,
-                () -> parkingLot.parkVehicle(truck)
+                () -> parkingLot.parkVehicle(truck, strategy)
         );
     }
 

@@ -2,7 +2,7 @@
 
 A clean, modular, and extensible Java-based Low-Level Design (LLD) implementation of a multi-floor parking lot system.
 
-This project demonstrates core Object-Oriented Programming (OOP) principles, SOLID architecture, design patterns (Strategy, Factory), comprehensive unit testing, and rigorous concurrency and scale analysis.
+This project demonstrates core Object-Oriented Programming (OOP) principles, SOLID architecture, design patterns (Strategy, Factory, Observer), comprehensive unit testing, and rigorous concurrency and scale analysis.
 
 ---
 
@@ -25,97 +25,105 @@ This project demonstrates core Object-Oriented Programming (OOP) principles, SOL
 
 Design an in-memory low-level parking lot management system capable of:
 
-- Managing multiple parking floors, each containing parking spots of varying sizes (`SMALL`, `MEDIUM`, `LARGE`).
+- Managing multiple parking floors, each containing parking spots of varying sizes (`BIKE`, `COMPACT`, `LARGE`).
 - Supporting multiple vehicle types (`BIKE`, `CAR`, `TRUCK`) with strict spot compatibility:
-  - `Bike` $\rightarrow$ fits in `SMALL`, `MEDIUM`, `LARGE`.
-  - `Car` $\rightarrow$ fits in `MEDIUM`, `LARGE`.
+  - `Bike` $\rightarrow$ fits in `BIKE`, `COMPACT`, `LARGE`.
+  - `Car` $\rightarrow$ fits in `COMPACT`, `LARGE`.
   - `Truck` $\rightarrow$ fits only in `LARGE`.
 - Allocating the nearest available, compatible parking spot to an incoming vehicle (lowest floor first, lowest spot number on that floor).
 - Generating a `Ticket` upon entry that encapsulates vehicle details, assigned spot, entry timestamp, and an assigned pricing policy.
 - Processing vehicle exits: freeing the assigned spot, stamping exit time, and computing the payable fee based on parking duration and the configured pricing strategy.
 - Supporting pluggable pricing models (hourly, daily, monthly, weekend) without modifying existing ticket or lot logic.
 - Centralizing vehicle instantiation through a dedicated factory.
+- Notifying real-time subscribers (e.g. entrance display boards, operations telemetry) when the lot reaches full capacity or vacates spots, using the Observer pattern.
 
 ---
 
 ## Domain Model & Class Architecture
 
-The system is structured into domain entities and strategy components:
+The system is structured into domain entities, pricing strategies, and capacity observers:
 
 ### Core Domain
-- **`ParkingLot`**: Orchestrates high-level operations (`parkVehicle`, `exitVehicle`, `findNearestAvailableSpot`). Holds an immutable list of `ParkingFloor` instances.
+- **`ParkingLot`**: Orchestrates high-level operations (`parkVehicle`, `exitVehicle`, `findNearestAvailableSpot`). Manages an immutable list of `ParkingFloor` instances, tracks overall capacity, and maintains an observer registry.
 - **`ParkingFloor`**: Represents a single physical level with an indexed collection of `ParkingSpot` objects.
 - **`ParkingSpot`**: Encapsulates an individual parking bay with a spot number, `SpotSize`, and its current occupancy status (`parkedVehicle`).
 - **`Vehicle`** (Abstract): Root vehicle abstraction defining `licensePlate` and `SpotSize` requirements. Subclassed by concrete types:
-  - `Bike` (requires `SMALL`)
-  - `Car` (requires `MEDIUM`)
+  - `Bike` (requires `BIKE`)
+  - `Car` (requires `COMPACT`)
   - `Truck` (requires `LARGE`)
 - **`VehicleFactory`**: Provides a single creation point to instantiate vehicles safely via `VehicleType` and license plate string.
 - **`Ticket`**: Represents an active or completed parking session. Encapsulates vehicle, spot reference, entry/exit timestamps, and the chosen `PricingStrategy`.
 
-### Pricing Strategies
+### Pricing Strategies (Strategy Pattern)
 - **`PricingStrategy`** (Interface): Contract defining `double calculate(long durationMinutes)`.
 - **`HourlyPricingStrategy`**: Rounds duration up to the nearest hour with flat rate per hour.
 - **`DailyPricingStrategy`**: Rounds duration up to the nearest full day with a 24-hour rate.
 - **`MonthlyPricingStrategy`**: Flat fee covering up to 30 days, billing additional 30-day blocks for overflow.
 - **`WeekendPricingStrategy`**: Applies surge pricing (higher hourly rate) during weekends or promotional peak periods.
 
+### Capacity Observers (Observer Pattern)
+- **`ParkingLotObserver`** (Interface): Contract defining `void onParkingLotFull(ParkingLot)` and `void onParkingLotAvailable(ParkingLot)`.
+- **`DisplayBoard`**: Real-time electronic entrance display board switching between `AVAILABLE` and `FULL` status and showing available spot counts.
+- **`CapacityAlertService`**: Telemetry and alerting observer tracking full/available state transition histories and alert metrics.
+
 ---
 
 ## Class Diagram
 
 ### Structural Overview
-
 ```text
                                ┌────────────────────────────────┐
                                │           ParkingLot           │
                                ├────────────────────────────────┤
                                │ - parkingFloors: List<Floor>   │
+                               │ - observers: List<Observer>    │
                                ├────────────────────────────────┤
                                │ + parkVehicle(v, strategy)     │
                                │ + exitVehicle(ticket)          │
                                │ + findNearestAvailableSpot(v)  │
-                               └───────────────┬────────────────┘
-                                               │ 1..* contains
-                                               ▼
-                               ┌────────────────────────────────┐
-                               │          ParkingFloor          │
-                               ├────────────────────────────────┤
-                               │ - floorNumber: int             │
-                               │ - parkingSpots: List<Spot>     │
-                               ├────────────────────────────────┤
-                               │ + findNearestAvailableSpot(v)  │
-                               └───────────────┬────────────────┘
-                                               │ 1..* contains
-                                               ▼
-                               ┌────────────────────────────────┐
-                               │          ParkingSpot           │
-                               ├────────────────────────────────┤
-                               │ - spotNumber: int              │
-                               │ - spotSize: SpotSize           │
-                               │ - parkedVehicle: Vehicle       │
-                               ├────────────────────────────────┤
-                               │ + isAvailable(): boolean       │
-                               │ + canFit(vehicle): boolean     │
-                               │ + park(vehicle): void          │
-                               │ + removeVehicle(): void        │
-                               └───────────────┬────────────────┘
-                                               │ 0..1 parks
-                                               ▼
-                               ┌────────────────────────────────┐
-                               │        Vehicle (Abstract)      │
-                               ├────────────────────────────────┤
-                               │ - licensePlate: String         │
-                               │ - requiredSpotSize: SpotSize   │
-                               ├────────────────────────────────┤
-                               │ + canFitIn(spotSize): boolean  │
-                               └───────┬───────────┬────────────┘
-                                       │           │
-                     ┌─────────────────┘           └──────────────────┐
-                     ▼                                                ▼
-           ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
-           │       Bike       │     │       Car        │     │      Truck       │
-           └──────────────────┘     └──────────────────┘     └──────────────────┘
+                               │ + addObserver(observer)        │
+                               │ + removeObserver(observer)     │
+                               │ + isFull(): boolean            │
+                               │ + getAvailableSpotsCount(): int│
+                               └───────┬──────────────┬─────────┘
+                                       │ 1..*         │ 0..* notifies
+                                       ▼              ▼
+                               ┌────────────────┐   «interface»  ┌───────────────────────────────────────────┐
+                               │  ParkingFloor  │                │            ParkingLotObserver             │
+                               ├────────────────┤                ├───────────────────────────────────────────┤
+                               │ - floorNumber  │                │ + onParkingLotFull(lot: ParkingLot)       │
+                               │ - spots: List  │                │ + onParkingLotAvailable(lot: ParkingLot)  │
+                               ├────────────────┤                └─────────────────────┬─────────────────────┘
+                               │ + isFull()     │                                      │
+                               └───────┬────────┘                   ┌──────────────────┴──────────────────┐
+                                       │ 1..* contains              ▼                                     ▼
+                                       ▼                ┌───────────────────────┐             ┌───────────────────────┐
+                               ┌────────────────┐       │     DisplayBoard      │             │ CapacityAlertService  │
+                               │  ParkingSpot   │       ├───────────────────────┤             ├───────────────────────┤
+                               ├────────────────┤       │ - status: DisplayStatus│            │ - alertHistory: List  │
+                               │ - spotNumber   │       │ - message: String     │             │ - fullAlertCount: int │
+                               │ - spotSize     │       └───────────────────────┘             └───────────────────────┘
+                               │ - parkedVehicle│
+                               ├────────────────┤
+                               │ + isAvailable()│
+                               │ + canFit(v)    │
+                               │ + park(v)      │
+                               │ + remove()     │
+                               └───────┬────────┘
+                                       │ 0..1 parks
+                                       ▼
+                               ┌────────────────┐
+                               │Vehicle (Abstr.)│
+                               ├────────────────┤
+                               │ - licensePlate │
+                               │ - spotSize     │
+                               └───────┬────────┘
+                                       │
+                      ┌────────────────┼────────────────┐
+                      ▼                ▼                ▼
+            ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
+            │       Bike       │ │       Car        │ │      Truck       │
+            └──────────────────┘ └──────────────────┘ └──────────────────┘
 
 
         ┌────────────────────────────────────────────────────────┐
@@ -172,10 +180,21 @@ The system is structured into domain entities and strategy components:
 - **SOLID Compliance**:
   - **Dependency Inversion Principle (DIP)**: Clients depend on the `Vehicle` abstraction rather than concrete implementations.
 
-### 3. Separation of Concerns & Information Expert
+### 3. Observer Pattern (`ParkingLotObserver`)
+- **Where**: `ParkingLot` acts as the event publisher and maintains a registry of `ParkingLotObserver` instances. Subscribed components implement `ParkingLotObserver` (e.g., `DisplayBoard`, `CapacityAlertService`).
+- **Why**: Arriving drivers and facility operations teams require instant visibility into lot occupancy. When the lot becomes full, entrance displays must promptly indicate `FULL`, and when spots become available, displays must update with vacancy counts. Directly embedding display rendering or telemetry logging into `ParkingLot` would violate SRP and create tight coupling to hardware and external services.
+- **State Transition Triggers**:
+  - **`AVAILABLE -> FULL`**: When `parkVehicle` occupies the last vacant spot across all floors (`isFull() == true`), `notifyParkingLotFull()` broadcasts `onParkingLotFull(this)` to all registered observers.
+  - **`FULL -> AVAILABLE`**: When `exitVehicle` frees a spot from an otherwise completely full lot (`wasFull && !isFull()`), `notifyParkingLotAvailable()` broadcasts `onParkingLotAvailable(this)` to all observers.
+- **SOLID Compliance**:
+  - **Open/Closed Principle (OCP)**: New observers (e.g., SMS alerts, toll gate barrier controllers, Prometheus telemetry exporters) can subscribe without changing existing lot code.
+  - **Single Responsibility Principle (SRP)**: `ParkingLot` focuses strictly on parking orchestration; observers handle display formatting, event counting, or alerting.
+  - **Loose Coupling / DIP**: `ParkingLot` depends only on the `ParkingLotObserver` abstraction, remaining agnostic to concrete observer implementations.
+
+### 4. Separation of Concerns & Information Expert
 - `ParkingSpot` is the expert on whether a vehicle fits (`spot.canFit(vehicle)`) and mutates its own state (`park()`, `removeVehicle()`).
-- `ParkingFloor` iterates over its own spots and delegates spot compatibility to each `ParkingSpot`.
-- `ParkingLot` coordinates multi-floor operations without micromanaging individual spot state.
+- `ParkingFloor` iterates over its own spots, computes floor-level occupancy (`isFull()`, `getAvailableSpotsCount()`), and delegates spot compatibility to each `ParkingSpot`.
+- `ParkingLot` coordinates multi-floor operations, overall capacity tracking, and state transition dispatching without micromanaging individual spot state.
 
 ---
 
@@ -188,14 +207,17 @@ The system is structured into domain entities and strategy components:
    - Floor 0 searches its spots sequentially for `canFit(vehicle)`.
    - If no spot is free on Floor 0, search advances to Floor 1, and so on.
 4. The first compatible spot is allocated via `spot.park(vehicle)`.
-5. A `Ticket` is minted containing vehicle metadata, spot reference, pricing strategy, and entry timestamp (`LocalDateTime.now()`).
+5. `ParkingLot` checks if the lot reached capacity (`isFull()`). If true, it triggers `observer.onParkingLotFull(this)` across all registered observers (e.g. updating the entrance `DisplayBoard` to `FULL`).
+6. A `Ticket` is minted containing vehicle metadata, spot reference, pricing strategy, and entry timestamp (`LocalDateTime.now()`).
 
 ### Vehicle Exit (`ParkingLot.exitVehicle`)
 1. Driver presents `Ticket` to `parkingLot.exitVehicle(ticket)`.
-2. `ParkingLot` calls `ticket.recordExit(LocalDateTime.now())`.
-3. The assigned spot is freed via `ticket.getSpot().removeVehicle()`.
-4. Fee calculation is delegated to `ticket.calculateFee()`, which queries `pricingStrategy.calculate(durationMinutes)`.
-5. Total payable amount in rupees is returned.
+2. `ParkingLot` records `wasFull = isFull()`.
+3. `ParkingLot` calls `ticket.recordExit(LocalDateTime.now())`.
+4. The assigned spot is freed via `ticket.getSpot().removeVehicle()`.
+5. If the lot was full prior to exit (`wasFull && !isFull()`), `ParkingLot` notifies all registered observers via `observer.onParkingLotAvailable(this)` (e.g. updating the entrance `DisplayBoard` to `AVAILABLE` with spot count).
+6. Fee calculation is delegated to `ticket.calculateFee()`, which queries `pricingStrategy.calculate(durationMinutes)`.
+7. Total payable amount in rupees is returned.
 
 ---
 
@@ -290,6 +312,10 @@ low-level-design/
 │   │   │       ├── ParkingFloor.java
 │   │   │       ├── ParkingLot.java
 │   │   │       ├── Ticket.java
+│   │   │       ├── observer/
+│   │   │       │   ├── ParkingLotObserver.java
+│   │   │       │   ├── DisplayBoard.java
+│   │   │       │   └── CapacityAlertService.java
 │   │   │       └── pricing/
 │   │   │           ├── PricingStrategy.java
 │   │   │           ├── HourlyPricingStrategy.java
@@ -305,6 +331,8 @@ low-level-design/
 │               ├── ParkingLotTest.java
 │               ├── TicketTest.java
 │               ├── VehicleFactoryTest.java
+│               ├── observer/
+│               │   └── ParkingLotObserverTest.java
 │               └── pricing/
 │                   ├── PricingStrategyTest.java
 │                   └── WeekendPricingStrategyTest.java

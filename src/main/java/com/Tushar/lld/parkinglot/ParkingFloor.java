@@ -37,6 +37,24 @@ public class ParkingFloor {
         return Collections.unmodifiableList(parkingSpots);
     }
 
+    public int getTotalSpots() {
+        return parkingSpots.size();
+    }
+
+    public int getAvailableSpotsCount() {
+        int count = 0;
+        for (ParkingSpot spot : parkingSpots) {
+            if (spot.isAvailable()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    public boolean isFull() {
+        return getAvailableSpotsCount() == 0;
+    }
+
     public ParkingSpot findNearestAvailableSpot(Vehicle vehicle) {
 
         if (vehicle == null) {
